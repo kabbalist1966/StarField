@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Hyperspace Wormhole — Aliens + Tokyo</title>
+  <title>Hyperspace Wormhole — Aliens + Tokyo + Touch</title>
   <style>
     html, body { margin:0; height:100%; overflow:hidden; background:#000; }
     .stage { position:fixed; inset:0; }
@@ -12,9 +12,9 @@
     #city {
       position:absolute;
       inset:0;
-      z-index:3;             /* ensure city is above canvases */
-      opacity:0;             /* start hidden */
-      transition: opacity 2s ease; /* smooth fade */
+      z-index:3;
+      opacity:0;
+      transition: opacity 2s ease;
     }
   </style>
 </head>
@@ -48,7 +48,7 @@
     ctx.fillRect(0,0,W,H);
 
     if(speed>0){
-      cityImg.style.opacity=0; // hide city
+      cityImg.style.opacity=0;
       for(let i=0;i<stars.length;i++){
         const s=stars[i];
         s.z-=speed;
@@ -67,7 +67,7 @@
         ctx.stroke();
       }
     } else {
-      cityImg.style.opacity=1; // fade in city
+      cityImg.style.opacity=1;
     }
 
     requestAnimationFrame(loop);
@@ -76,11 +76,34 @@
 
   window.getHyperspaceSpeed = () => speed;
 
+  // Keyboard controls
   document.addEventListener('keydown',e=>{
     if(e.key==='ArrowUp') speed+=5;
     if(e.key==='ArrowDown') speed-=5;
-    if(speed<0) speed=0; // allow full stop
+    if(speed<0) speed=0;
     if(speed>80) speed=80;
+  });
+
+  // Touch controls for mobile
+  let touchStartY = null;
+  document.addEventListener('touchstart', e => {
+    if(e.touches.length > 0){
+      touchStartY = e.touches[0].clientY;
+    }
+  });
+  document.addEventListener('touchmove', e => {
+    if(touchStartY !== null && e.touches.length > 0){
+      const currentY = e.touches[0].clientY;
+      const deltaY = touchStartY - currentY;
+      const sensitivity = 0.05; // adjust for faster/slower response
+      speed += deltaY * sensitivity;
+      if(speed < 0) speed = 0;
+      if(speed > 80) speed = 80;
+      touchStartY = currentY; // reset baseline for smooth control
+    }
+  });
+  document.addEventListener('touchend', () => {
+    touchStartY = null;
   });
   </script>
 
