@@ -84,29 +84,15 @@
     if(speed>80) speed=80;
   });
 
-  // Touch controls for mobile
-  let touchStartY = null;
-  document.addEventListener('touchstart', e => {
-    if(e.touches.length > 0){
-      touchStartY = e.touches[0].clientY;
-    }
-  }, { passive:false });
-
+  // Touch controls: drag relative to screen center
   document.addEventListener('touchmove', e => {
-    if(touchStartY !== null && e.touches.length > 0){
-      e.preventDefault(); // stop page scrolling
+    if(e.touches.length > 0){
+      e.preventDefault();
       const currentY = e.touches[0].clientY;
-      const deltaY = touchStartY - currentY;
-      const sensitivity = 0.05;
-      speed += deltaY * sensitivity;
-      if(speed < 0) speed = 0;
-      if(speed > 80) speed = 80;
-      touchStartY = currentY;
+      const distanceFromCenter = CY - currentY; // above center = positive
+      // Map distance to speed
+      speed = Math.max(0, Math.min(80, (distanceFromCenter / CY) * 80));
     }
-  }, { passive:false });
-
-  document.addEventListener('touchend', () => {
-    touchStartY = null;
   }, { passive:false });
   </script>
 
