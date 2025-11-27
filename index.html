@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Hyperspace Starfield</title>
+  <title>Hyperspace Starfield with Aliens</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
     html, body {
       margin:0; padding:0; background:#000; height:100%; overflow:hidden;
-      touch-action:none; /* disable browser gestures */
+      touch-action:none;
     }
     canvas { display:block; width:100vw; height:100vh; touch-action:none; }
   </style>
@@ -35,13 +35,17 @@
   resize();
 
   let stars = [];
-  const numStars = 450;
+  const numStars = 400;
   let speed = 0;
   let targetSpeed = 0;
   let charging = false;
   let chargeStart = 0;
   let centerX = canvas.width/2;
   let centerY = canvas.height/2;
+
+  // Aliens and celestial bodies
+  let aliens = [];
+  let bodies = [];
 
   function resetStar(star,w,h){
     star.x = (Math.random()-0.5)*w;
@@ -60,6 +64,24 @@
   }
   initStars();
 
+  function spawnAlien(){
+    aliens.push({
+      x: Math.random()*canvas.width,
+      y: Math.random()*canvas.height,
+      size: 30,
+      message: "Hi!"
+    });
+  }
+
+  function spawnBody(){
+    bodies.push({
+      x: Math.random()*canvas.width,
+      y: Math.random()*canvas.height,
+      radius: 40+Math.random()*60,
+      color: `hsla(${Math.random()*360},70%,50%,0.5)`
+    });
+  }
+
   function draw(){
     speed += (targetSpeed-speed)*0.1;
     ctx.fillStyle="#000";
@@ -68,6 +90,7 @@
     const w = canvas.width/(window.devicePixelRatio||1);
     const h = canvas.height/(window.devicePixelRatio||1);
 
+    // stars
     ctx.fillStyle="#fff";
     for(let star of stars){
       star.z -= speed;
@@ -80,6 +103,28 @@
         ctx.fillRect(sx,sy,size,size);
       }
     }
+
+    // aliens appear only at slower speeds
+    if(speed < 5 && Math.random()<0.01) spawnAlien();
+    ctx.fillStyle="lime";
+    ctx.font="16px sans-serif";
+    for(let alien of aliens){
+      ctx.beginPath();
+      ctx.arc(alien.x,alien.y,alien.size/2,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillText(alien.message,alien.x+alien.size,alien.y);
+    }
+    if(speed>10) aliens=[]; // fade out when speeding up
+
+    // celestial bodies
+    if(Math.random()<0.005) spawnBody();
+    for(let body of bodies){
+      ctx.fillStyle=body.color;
+      ctx.beginPath();
+      ctx.arc(body.x,body.y,body.radius,0,Math.PI*2);
+      ctx.fill();
+    }
+
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
