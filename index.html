@@ -2,194 +2,533 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Hyperspace Starfield with Aliens</title>
+  <title>Draughts (Checkers) — Android HTML</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
-    html, body {
-      margin:0; padding:0; background:#000; height:100%; overflow:hidden;
-      touch-action:none;
+    :root {
+      --board-size: 88vmin; /* square board */
+      --light: #f2f2f2;
+      --dark: #222;
+      --accent: #00aaff;
+      --red: #ff3b30;
     }
-    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+    html, body { margin:0; padding:0; background:#121212; color:#eee; font:16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap {
+      max-width: 900px; margin: 10px auto; padding: 8px; display: grid; grid-template-columns: 1fr; gap: 10px;
+    }
+    .hud {
+      display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    }
+    select, button {
+      appearance:none; border:1px solid #444; background:#1e1e1e; color:#eee; padding:8px 12px; border-radius:6px;
+    }
+    button { cursor:pointer; }
+    canvas {
+      width: var(--board-size);
+      height: var(--board-size);
+      display:block; margin: 0 auto; background:#000; touch-action: manipulation;
+      border: 1px solid #333; border-radius: 8px;
+    }
+    .status { min-height: 24px; }
+    .note { color:#aaa; font-size: 14px; }
   </style>
 </head>
 <body>
-<canvas id="starfield"></canvas>
+<div class="wrap">
+  <div class="hud">
+    <label>Difficulty:
+      <select id="level">
+        <option value="1">Level 1 (fast)</option>
+        <option value="2" selected>Level 2</option>
+        <option value="3">Level 3</option>
+        <option value="4">Level 4</option>
+        <option value="5">Level 5 (stronger)</option>
+      </select>
+    </label>
+    <button id="resetBtn">Reset game</button>
+    <div class="status" id="status"></div>
+  </div>
+  <canvas id="board" width="800" height="800"></canvas>
+  <div class="note">You play White (bottom). Tap a piece, then tap a destination. Captures are mandatory and may chain.</div>
+</div>
+
 <script>
 (function(){
-  const canvas = document.getElementById("starfield");
-  const ctx = canvas.getContext("2d");
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const levelSel = document.getElementById('level');
+  const resetBtn = document.getElementById('resetBtn');
 
-  // Build number for deployment confirmation
-  const BUILD_NUMBER = "Build 10"; // increment this each time you publish
+  // Board constants (English draughts: 8x8, dark squares playable)
+  const N = 8;
+  const LIGHT = '#f2f2f2';
+  const DARK = '#222';
+  const WHITE = 'W'; // human
+  const BLACK = 'B'; // AI
+  const EMPTY = 0;
+  const MAN = 'M';
+  const KING = 'K';
 
-  function resize() {
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    centerX = w/2;
-    centerY = h/2;
-  }
-  window.addEventListener("resize", resize);
-  resize();
+  // UI state
+  let state = null;
+  let selected = null; // {r,c} for selected square
+  let levelDepth = 2;  // default
+  let thinking = false;
 
-  let stars = [];
-  const numStars = 400;
-  let speed = 0;
-  let targetSpeed = 0;
-  let charging = false;
-  let chargeStart = 0;
-  let centerX = canvas.width/2;
-  let centerY = canvas.height/2;
+  levelSel.addEventListener('change', () => {
+    levelDepth = clamp(parseInt(levelSel.value,10),1,5);
+    setStatus(`Difficulty set to Level ${levelDepth}`);
+  });
 
-  // Aliens and celestial bodies
-  let aliens = [];
-  let bodies = [];
+  resetBtn.addEventListener('click', () => {
+    newGame();
+  });
 
-  function resetStar(star,w,h){
-    star.x = (Math.random()-0.5)*w;
-    star.y = (Math.random()-0.5)*h;
-    star.z = Math.random()*Math.max(w,h);
-  }
-  function initStars(){
-    stars.length=0;
-    const w = canvas.width/(window.devicePixelRatio||1);
-    const h = canvas.height/(window.devicePixelRatio||1);
-    for(let i=0;i<numStars;i++){
-      const s={x:0,y:0,z:0};
-      resetStar(s,w,h);
-      stars.push(s);
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+  // Game state structure
+  function makeInitialState(){
+    const board = Array.from({length:N}, ()=>Array(N).fill(EMPTY));
+    // Place BLACK at top 3 rows on dark squares
+    for(let r=0;r<3;r++){
+      for(let c=0;c<N;c++){
+        if ((r+c)%2===1) board[r][c] = { side: BLACK, type: MAN };
+      }
     }
-  }
-  initStars();
-
-  function spawnAlien(){
-    aliens.push({
-      x: Math.random()*canvas.width,
-      y: Math.random()*canvas.height,
-      size: 30,
-      message: "Hi!"
-    });
-  }
-
-  function spawnBody(){
-    bodies.push({
-      x: Math.random()*canvas.width,
-      y: Math.random()*canvas.height,
-      radius: 40+Math.random()*60,
-      color: `hsla(${Math.random()*360},70%,50%,0.5)`
-    });
+    // Place WHITE at bottom 3 rows on dark squares
+    for(let r=N-3;r<N;r++){
+      for(let c=0;c<N;c++){
+        if ((r+c)%2===1) board[r][c] = { side: WHITE, type: MAN };
+      }
+    }
+    return {
+      board,
+      turn: WHITE, // human plays white
+      winner: null,
+      mustChain: null, // if in middle of a capture chain: {r,c}
+      moveCount: 0
+    };
   }
 
+  function newGame(){
+    state = makeInitialState();
+    selected = null;
+    thinking = false;
+    draw();
+    setStatus('Your move (White).');
+  }
+
+  // Drawing
   function draw(){
-    speed += (targetSpeed-speed)*0.1;
-    ctx.fillStyle="#000";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    const W = canvas.width, H = canvas.height;
+    const cell = W / N;
 
-    const w = canvas.width/(window.devicePixelRatio||1);
-    const h = canvas.height/(window.devicePixelRatio||1);
-
-    // stars
-    ctx.fillStyle="#fff";
-    for(let star of stars){
-      star.z -= speed;
-      if(star.z<=1) resetStar(star,w,h);
-      const k = 140/star.z;
-      const sx = star.x*k+centerX;
-      const sy = star.y*k+centerY;
-      if(sx>=0 && sx<w && sy>=0 && sy<h){
-        const size = Math.max(0.8,(1-star.z/Math.max(w,h))*2);
-        ctx.fillRect(sx,sy,size,size);
+    // board squares
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        const x = c*cell, y = r*cell;
+        ctx.fillStyle = ((r+c)%2===0) ? LIGHT : DARK;
+        ctx.fillRect(x,y,cell,cell);
       }
     }
 
-    // aliens appear only at slower speeds
-    if(speed < 5 && Math.random()<0.01) spawnAlien();
-    ctx.fillStyle="lime";
-    ctx.font="16px sans-serif";
-    for(let alien of aliens){
-      ctx.beginPath();
-      ctx.arc(alien.x,alien.y,alien.size/2,0,Math.PI*2);
-      ctx.fill();
-      ctx.fillText(alien.message,alien.x+alien.size,alien.y);
-    }
-    if(speed>10) aliens=[]; // fade out when speeding up
-
-    // celestial bodies
-    if(Math.random()<0.005) spawnBody();
-    for(let body of bodies){
-      ctx.fillStyle=body.color;
-      ctx.beginPath();
-      ctx.arc(body.x,body.y,body.radius,0,Math.PI*2);
-      ctx.fill();
+    // highlight selected
+    if (selected){
+      ctx.strokeStyle = '#00aaff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(selected.c*cell+2, selected.r*cell+2, cell-4, cell-4);
     }
 
-    // Build number overlay
-    ctx.fillStyle="yellow";
-    ctx.font="20px monospace";
-    ctx.fillText(BUILD_NUMBER, 20, 30);
+    // pieces
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        const p = state.board[r][c];
+        if (!p) continue;
+        const cx = c*cell + cell/2;
+        const cy = r*cell + cell/2;
+        const radius = cell*0.38;
 
-    requestAnimationFrame(draw);
-  }
-  requestAnimationFrame(draw);
+        // piece fill (white vs black)
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI*2);
+        ctx.fillStyle = (p.side===WHITE) ? '#ffffff' : '#000000';
+        ctx.strokeStyle = (p.side===WHITE) ? '#666' : '#ddd';
+        ctx.lineWidth = 3;
+        ctx.fill();
+        ctx.stroke();
 
-  function fireShot(chargeTimeMs){
-    const burst = Math.min(chargeTimeMs/80,60);
-    targetSpeed = burst;
-    setTimeout(()=>{targetSpeed=0;},1200);
-  }
+        // subtle top highlight
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius*0.75, 0, Math.PI, true);
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
 
-  // --- POINTER EVENTS (touch + mouse unified) ---
-  let lastX=null;
-
-  function onPointerDown(e){
-    charging=true;
-    chargeStart=performance.now();
-    lastX=e.clientX;
-    canvas.setPointerCapture(e.pointerId);
-  }
-  function onPointerUp(e){
-    if(charging){
-      charging=false;
-      const chargeTime=performance.now()-chargeStart;
-      fireShot(chargeTime);
-    }
-    lastX=null;
-    try{canvas.releasePointerCapture(e.pointerId);}catch{}
-  }
-  function onPointerMove(e){
-    if(lastX==null) return;
-    const dx=e.clientX-lastX;
-    if(Math.abs(dx)>2){
-      if(dx>0){
-        targetSpeed=Math.min(targetSpeed+1.5,80); // swipe right = faster
-      }else{
-        targetSpeed=Math.max(targetSpeed-1.5,0);  // swipe left = slower
+        // King crown marker
+        if (p.type===KING){
+          ctx.fillStyle = (p.side===WHITE) ? '#111' : '#eee';
+          ctx.font = `${Math.floor(cell*0.28)}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('♛', cx, cy);
+        }
       }
-      lastX=e.clientX;
+    }
+
+    // thinking overlay
+    if (thinking){
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle = '#ffcc00';
+      ctx.font = '20px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Phone thinking…', W/2, 26);
+    }
+
+    // winner banner
+    if (state.winner){
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0,H/2-40,W,80);
+      ctx.fillStyle = '#00e676';
+      ctx.font = '28px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${state.winner} wins`, W/2, H/2);
     }
   }
 
-  canvas.addEventListener("pointerdown",onPointerDown,{passive:false});
-  canvas.addEventListener("pointerup",onPointerUp,{passive:false});
-  canvas.addEventListener("pointercancel",onPointerUp,{passive:false});
-  canvas.addEventListener("pointermove",onPointerMove,{passive:false});
+  // Input handling (tap/click)
+  canvas.addEventListener('pointerdown', (e)=>{
+    if (thinking || state.winner) return;
+    const rect = canvas.getBoundingClientRect();
+    const cell = canvas.width / N;
+    const x = (e.clientX - rect.left) * (canvas.width/rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height/rect.height);
+    const c = Math.floor(x / cell);
+    const r = Math.floor(y / cell);
 
-  ["touchstart","touchmove","touchend","touchcancel"].forEach(type=>{
-    document.addEventListener(type,(e)=>{
-      if(e.target===canvas) e.preventDefault();
-    },{passive:false});
-  });
+    onTapSquare(r,c);
+  }, {passive:true});
 
-  // Keyboard fallback
-  window.addEventListener("keydown",(e)=>{
-    if(e.key==="ArrowRight") targetSpeed=Math.min(targetSpeed+5,80);
-    if(e.key==="ArrowLeft") targetSpeed=Math.max(targetSpeed-5,0);
-  });
+  function onTapSquare(r,c){
+    const p = inBounds(r,c) ? state.board[r][c] : null;
+    const myTurn = state.turn===WHITE;
+
+    // If in a capture chain, restrict moves to that piece
+    if (state.mustChain){
+      const {r:cr, c:cc} = state.mustChain;
+      if (!selected || selected.r!==cr || selected.c!==cc) {
+        selected = {r:cr, c:cc};
+      }
+      const moves = legalMovesForSquare(state, cr, cc);
+      const move = moves.find(m => m.to.r===r && m.to.c===c);
+      if (move){
+        applyMove(state, move);
+        postMove();
+      } else {
+        selected = {r:cr, c:cc};
+      }
+      draw();
+      return;
+    }
+
+    // Your turn: select your piece or move it
+    if (myTurn){
+      if (p && p.side===WHITE){
+        selected = {r,c};
+      } else if (selected){
+        const moves = legalMovesForSquare(state, selected.r, selected.c);
+        const move = moves.find(m => m.to.r===r && m.to.c===c);
+        if (move){
+          applyMove(state, move);
+          postMove();
+        }
+      }
+      draw();
+    }
+  }
+
+  function postMove(){
+    // If move ended with capture and more captures possible with the same piece, continue chain
+    if (state.mustChain){
+      const {r,c} = state.mustChain;
+      const chainMoves = legalMovesForSquare(state, r, c).filter(m => m.capture);
+      if (chainMoves.length>0){
+        selected = {r,c};
+        setStatus('Continue capture chain.');
+        draw();
+        return;
+      } else {
+        state.mustChain = null;
+      }
+    }
+    // Switch turn
+    state.turn = (state.turn===WHITE) ? BLACK : WHITE;
+    selected = null;
+
+    // Check winner
+    const win = computeWinner(state);
+    if (win){
+      state.winner = win;
+      setStatus(`${win} wins.`);
+      draw();
+      return;
+    }
+
+    // If it's AI's turn, think and move
+    if (state.turn===BLACK){
+      setStatus('Phone thinking…');
+      thinking = true;
+      draw();
+      setTimeout(()=> {
+        const aiMove = findBestMove(state, levelDepth);
+        if (!aiMove) {
+          state.winner = WHITE;
+          setStatus('White wins (no moves).');
+          thinking = false;
+          draw();
+          return;
+        }
+        applyMove(state, aiMove);
+        // process potential chain for AI
+        if (state.mustChain){
+          while(true){
+            const {r,c} = state.mustChain;
+            const chainMoves = legalMovesForSquare(state, r, c).filter(m=>m.capture);
+            if (chainMoves.length===0) { state.mustChain=null; break; }
+            // naive: pick first best chain by evaluation
+            const chained = chainMoves[0];
+            applyMove(state, chained);
+          }
+        }
+        state.turn = WHITE;
+        thinking = false;
+
+        const win2 = computeWinner(state);
+        if (win2){
+          state.winner = win2;
+          setStatus(`${win2} wins.`);
+        } else {
+          setStatus('Your move.');
+        }
+        draw();
+      }, 50); // small delay for UX
+    } else {
+      setStatus('Your move.');
+    }
+  }
+
+  // Rules: movement and captures (mandatory captures, multi-jumps)
+  function inBounds(r,c){ return r>=0 && r<N && c>=0 && c<N; }
+
+  function directionsFor(piece){
+    if (piece.type===KING) return [[1,-1],[1,1],[-1,-1],[-1,1]];
+    // WHITE moves up (towards r=0), BLACK moves down
+    return (piece.side===WHITE) ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]];
+  }
+
+  function legalMoves(state){
+    // all moves for current player, with capture priority
+    const moves = [];
+    const captures = [];
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        const p = state.board[r][c];
+        if (!p || p.side!==state.turn) continue;
+        const ms = legalMovesForSquare(state, r, c);
+        for(const m of ms){
+          if (m.capture) captures.push(m);
+          else moves.push(m);
+        }
+      }
+    }
+    return captures.length>0 ? captures : moves;
+  }
+
+  function legalMovesForSquare(state, r, c){
+    const result = [];
+    const piece = state.board[r][c];
+    if (!piece) return result;
+
+    const dirs = directionsFor(piece);
+
+    // captures
+    for(const [dr,dc] of dirs){
+      const r1 = r + dr, c1 = c + dc;
+      const r2 = r + 2*dr, c2 = c + 2*dc;
+      if (inBounds(r2,c2) && inBounds(r1,c1)){
+        const mid = state.board[r1][c1];
+        if (mid && mid.side!==piece.side && !state.board[r2][c2]){
+          result.push({
+            from:{r,c}, to:{r:r2,c:c2}, capture:{r:r1,c:c1}, piece
+          });
+        }
+      }
+    }
+
+    if (result.length>0) return result; // capture priority
+
+    // simple moves
+    for(const [dr,dc] of dirs){
+      const r1 = r + dr, c1 = c + dc;
+      if (inBounds(r1,c1) && !state.board[r1][c1]){
+        result.push({ from:{r,c}, to:{r:r1,c:c1}, capture:null, piece });
+      }
+    }
+    return result;
+  }
+
+  function applyMove(state, move){
+    const {from,to,capture} = move;
+    const piece = state.board[from.r][from.c];
+    // move piece
+    state.board[from.r][from.c] = EMPTY;
+    state.board[to.r][to.c] = piece;
+
+    // capture
+    if (capture){
+      state.board[capture.r][capture.c] = EMPTY;
+      // chain possibility: mark mustChain if further captures exist from 'to'
+      state.mustChain = { r: to.r, c: to.c };
+    } else {
+      state.mustChain = null;
+    }
+
+    // promotion to king
+    if (piece.type===MAN){
+      if (piece.side===WHITE && to.r===0) piece.type = KING;
+      if (piece.side===BLACK && to.r===N-1) piece.type = KING;
+    }
+
+    state.moveCount++;
+  }
+
+  function computeWinner(state){
+    // No moves for side-to-move => other side wins
+    const ms = legalMoves(state);
+    if (ms.length===0) return (state.turn===WHITE) ? BLACK : WHITE;
+    // Or zero pieces of a side => other side wins
+    let whiteCount=0, blackCount=0;
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      const p=state.board[r][c];
+      if (p){
+        if (p.side===WHITE) whiteCount++;
+        else blackCount++;
+      }
+    }
+    if (whiteCount===0) return BLACK;
+    if (blackCount===0) return WHITE;
+    return null;
+  }
+
+  // AI: minimax with alpha-beta, depth based on difficulty
+  function findBestMove(s, depth){
+    const moves = legalMoves(s);
+    if (moves.length===0) return null;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const mv of moves){
+      const snap = snapshot(s);
+      applyMove(snap, mv);
+      // if capture chain continues, let AI continue internally
+      if (snap.mustChain){
+        while(true){
+          const {r,c} = snap.mustChain;
+          const chainMoves = legalMovesForSquare(snap, r, c).filter(m=>m.capture);
+          if (chainMoves.length===0){ snap.mustChain=null; break; }
+          applyMove(snap, chainMoves[0]);
+        }
+        snap.turn = WHITE; // after AI completes chain, switch turn
+      } else {
+        snap.turn = WHITE;
+      }
+      const score = -negamax(snap, depth-1, -Infinity, Infinity);
+      if (score > bestScore){
+        bestScore = score;
+        best = mv;
+      }
+    }
+    return best;
+  }
+
+  function negamax(s, depth, alpha, beta){
+    const win = computeWinner(s);
+    if (win){
+      // terminal: side to move loses; from perspective of player-to-move, bad score
+      return (win===BLACK) ? 10000 : -10000; // if BLACK wins, good for BLACK (positive when evaluating BLACK's turn)
+    }
+    if (depth<=0) return evaluate(s);
+
+    const moves = legalMoves(s);
+    if (moves.length===0) return evaluate(s); // stalemate fallback
+
+    let best = -Infinity;
+    for (const mv of moves){
+      const ns = snapshot(s);
+      applyMove(ns, mv);
+      // handle chain: same side continues capturing
+      if (ns.mustChain){
+        // same side continues; do not switch turn
+        while(true){
+          const {r,c}=ns.mustChain;
+          const chains = legalMovesForSquare(ns, r, c).filter(m=>m.capture);
+          if (chains.length===0){ ns.mustChain=null; break; }
+          applyMove(ns, chains[0]);
+        }
+      } else {
+        ns.turn = (ns.turn===WHITE) ? BLACK : WHITE;
+      }
+      const val = -negamax(ns, depth-1, -beta, -alpha);
+      if (val > best) best = val;
+      if (val > alpha) alpha = val;
+      if (alpha >= beta) break; // alpha-beta prune
+    }
+    return best;
+  }
+
+  function evaluate(s){
+    // Material + mobility + advancement for men
+    let score = 0;
+    let wMoves = 0, bMoves = 0;
+    // mobility estimate
+    const turnSave = s.turn;
+    s.turn = WHITE; wMoves = legalMoves(s).length;
+    s.turn = BLACK; bMoves = legalMoves(s).length;
+    s.turn = turnSave;
+
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+      const p = s.board[r][c];
+      if (!p) continue;
+      const val = (p.type===KING ? 3 : 1);
+      const adv = (p.type===MAN ? ((p.side===WHITE ? (N-1-r) : r)*0.05) : 0);
+      score += (p.side===BLACK ? (val + adv) : -(val + adv));
+    }
+    score += (bMoves - wMoves)*0.05;
+    return score;
+  }
+
+  function snapshot(s){
+    // deep copy state
+    const board = Array.from({length:N}, (_,r)=>Array.from({length:N}, (_,c)=>{
+      const p = s.board[r][c];
+      return p ? { side: p.side, type: p.type } : EMPTY;
+    }));
+    return {
+      board,
+      turn: s.turn,
+      winner: s.winner,
+      mustChain: s.mustChain ? { r: s.mustChain.r, c: s.mustChain.c } : null,
+      moveCount: s.moveCount
+    };
+  }
+
+  function setStatus(msg){ statusEl.textContent = msg; }
+
+  // Start
+  levelDepth = clamp(parseInt(levelSel.value,10),1,5);
+  newGame();
+
 })();
 </script>
 </body>
