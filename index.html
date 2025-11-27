@@ -1,118 +1,173 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Hyperspace Starfield</title>
+  <meta charset="UTF-8" />
+  <title>Hyperspace Starfield (Pointer Events)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
-    body { margin:0; overflow:hidden; background:black; }
-    canvas { display:block; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none; /* disable double-tap zoom/pan globally */
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none; /* ensure canvas captures gestures */
+      cursor: crosshair;
+    }
   </style>
 </head>
 <body>
 <canvas id="starfield"></canvas>
 <script>
-const canvas = document.getElementById("starfield");
-const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+(function() {
+  const canvas = document.getElementById("starfield");
+  const ctx = canvas.getContext("2d");
 
-let stars = [];
-let numStars = 400;
-let speed = 0;
-let charging = false;
-let chargeStart = 0;
-let aimY = canvas.height / 2;
-let lastTouchY = null;
+  // HiDPI scaling
+  function resize() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.floor(window.innerWidth);
+    const h = Math.floor(window.innerHeight);
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    centerX = w / 2;
+    centerY = h / 2;
+  }
+  window.addEventListener("resize", resize);
+  resize();
 
-// initialize stars
-for (let i = 0; i < numStars; i++) {
-  stars.push({
-    x: (Math.random() - 0.5) * canvas.width,
-    y: (Math.random() - 0.5) * canvas.height,
-    z: Math.random() * canvas.width
-  });
-}
+  // Starfield state
+  let stars = [];
+  const numStars = 450;
+  let speed = 0;            // current warp speed
+  let targetSpeed = 0;      // smoothing target
+  let charging = false;
+  let chargeStart = 0;
+  let aimY = 0;             // vertical offset
+  let centerX = canvas.width / 2;
+  let centerY = canvas.height / 2;
 
-function draw() {
-  ctx.fillStyle = "black";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = "white";
-  for (let star of stars) {
-    star.z -= speed;
-    if (star.z <= 0) {
-      star.x = (Math.random() - 0.5) * canvas.width;
-      star.y = (Math.random() - 0.5) * canvas.height;
-      star.z = canvas.width;
+  // initialize stars
+  function resetStar(star, w, h) {
+    star.x = (Math.random() - 0.5) * w;
+    star.y = (Math.random() - 0.5) * h;
+    star.z = Math.random() * Math.max(w, h);
+  }
+  function initStars() {
+    stars.length = 0;
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    for (let i = 0; i < numStars; i++) {
+      const s = { x: 0, y: 0, z: 0 };
+      resetStar(s, w, h);
+      stars.push(s);
     }
-    let k = 128.0 / star.z;
-    let sx = star.x * k + canvas.width / 2;
-    let sy = star.y * k + aimY;
-    if (sx >= 0 && sx < canvas.width && sy >= 0 && sy < canvas.height) {
-      let size = (1 - star.z / canvas.width) * 2;
-      ctx.fillRect(sx, sy, size, size);
+  }
+  initStars();
+
+  // render loop
+  function draw() {
+    // smooth speed changes
+    speed += (targetSpeed - speed) * 0.1;
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+
+    ctx.fillStyle = "#fff";
+    for (let star of stars) {
+      star.z -= speed;
+      if (star.z <= 1) resetStar(star, w, h);
+
+      const k = 140 / star.z;
+      const sx = star.x * k + centerX;
+      const sy = star.y * k + centerY + aimY;
+
+      if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+        const size = Math.max(0.8, (1 - star.z / Math.max(w, h)) * 2);
+        ctx.fillRect(sx, sy, size, size);
+      }
     }
+    requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
-}
-draw();
 
-// fire shot based on charge time
-function fireShot(chargeTime) {
-  speed = Math.min(chargeTime / 100, 40); // cap speed
-  setTimeout(() => { speed = 0; }, 1000); // reset after 1s
-}
-
-// --- MOUSE CONTROLS ---
-canvas.addEventListener("mousedown", e => {
-  charging = true;
-  chargeStart = Date.now();
-});
-canvas.addEventListener("mouseup", e => {
-  charging = false;
-  let chargeTime = Date.now() - chargeStart;
-  fireShot(chargeTime);
-});
-canvas.addEventListener("mousemove", e => {
-  aimY = e.clientY;
-});
-
-// --- TOUCH CONTROLS ---
-canvas.addEventListener("touchstart", e => {
-  charging = true;
-  chargeStart = Date.now();
-  lastTouchY = e.touches[0].clientY;
-  e.preventDefault();
-});
-
-canvas.addEventListener("touchend", e => {
-  charging = false;
-  let chargeTime = Date.now() - chargeStart;
-  fireShot(chargeTime);
-  lastTouchY = null;
-  e.preventDefault();
-});
-
-canvas.addEventListener("touchmove", e => {
-  let touch = e.touches[0];
-  let deltaY = touch.clientY - lastTouchY;
-  if (Math.abs(deltaY) > 5) {
-    if (deltaY < 0) {
-      speed = Math.min(speed + 0.5, 80); // swipe up = faster
-    } else {
-      speed = Math.max(speed - 0.5, 1);  // swipe down = slower
-    }
-    lastTouchY = touch.clientY;
+  // fire shot based on charge time -> sets target speed briefly
+  function fireShot(chargeTimeMs) {
+    const burst = Math.min(chargeTimeMs / 80, 60); // cap burst
+    targetSpeed = burst;
+    // decay back to idle
+    setTimeout(() => { targetSpeed = 0; }, 1200);
   }
-  aimY = touch.clientY; // vertical position shifts starfield perspective
-  e.preventDefault();
-});
 
-// resize handler
-window.addEventListener("resize", () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-});
+  // POINTER EVENTS (covers touch + mouse)
+  let lastY = null;
+
+  function onPointerDown(e) {
+    charging = true;
+    chargeStart = performance.now();
+    lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerUp(e) {
+    if (charging) {
+      charging = false;
+      const chargeTime = performance.now() - chargeStart;
+      fireShot(chargeTime);
+    }
+    lastY = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+  }
+
+  function onPointerMove(e) {
+    if (lastY == null) return;
+    const deltaY = e.clientY - lastY;
+
+    // vertical drag adjusts speed smoothly
+    if (Math.abs(deltaY) > 2) {
+      if (deltaY < 0) {
+        targetSpeed = Math.min(targetSpeed + 1.0, 80); // up = faster
+      } else {
+        targetSpeed = Math.max(targetSpeed - 1.0, 0);  // down = slower
+      }
+      lastY = e.clientY;
+    }
+
+    // vertical position offsets perspective
+    aimY = (e.clientY - (canvas.height / ((window.devicePixelRatio || 1) * 2))) * 0.2;
+  }
+
+  // Use non-passive listeners to allow preventDefault on mobile
+  canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
+  canvas.addEventListener("pointerup", onPointerUp, { passive: false });
+  canvas.addEventListener("pointercancel", onPointerUp, { passive: false });
+  canvas.addEventListener("pointermove", onPointerMove, { passive: false });
+
+  // Extra guard: prevent scroll/zoom gestures
+  ["touchstart","touchmove","touchend","touchcancel"].forEach(type => {
+    document.addEventListener(type, (e) => {
+      if (e.target === canvas) e.preventDefault();
+    }, { passive: false });
+  });
+
+  // Keyboard fallback (desktop testing)
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") targetSpeed = Math.min(targetSpeed + 5, 80);
+    if (e.key === "ArrowDown") targetSpeed = Math.max(targetSpeed - 5, 0);
+  });
+})();
 </script>
 </body>
 </html>
