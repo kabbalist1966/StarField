@@ -1,188 +1,54 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Hyperspace Starfield with Aliens</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta charset="UTF-8">
+  <title>Starfield Debug</title>
   <style>
-    html, body {
-      margin:0; padding:0; background:#000; height:100%; overflow:hidden;
-      touch-action:none;
-    }
-    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+    body { margin:0; background:#000; overflow:hidden; }
+    canvas { display:block; width:100vw; height:100vh; }
   </style>
 </head>
 <body>
-<canvas id="starfield"></canvas>
+<canvas id="c"></canvas>
 <script>
-(function(){
-  const canvas = document.getElementById("starfield");
-  const ctx = canvas.getContext("2d");
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-  function resize() {
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    centerX = w/2;
-    centerY = h/2;
-  }
-  window.addEventListener("resize", resize);
-  resize();
+let stars = [];
+for (let i=0; i<300; i++) {
+  stars.push({
+    x: (Math.random()-0.5)*canvas.width,
+    y: (Math.random()-0.5)*canvas.height,
+    z: Math.random()*canvas.width
+  });
+}
 
-  let stars = [];
-  const numStars = 400;
-  let speed = 0;
-  let targetSpeed = 0;
-  let charging = false;
-  let chargeStart = 0;
-  let centerX = canvas.width/2;
-  let centerY = canvas.height/2;
+let speed = 5; // fixed speed so you see movement
 
-  // Aliens and celestial bodies
-  let aliens = [];
-  let bodies = [];
+function draw() {
+  ctx.fillStyle = "black";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  function resetStar(star,w,h){
-    star.x = (Math.random()-0.5)*w;
-    star.y = (Math.random()-0.5)*h;
-    star.z = Math.random()*Math.max(w,h);
-  }
-  function initStars(){
-    stars.length=0;
-    const w = canvas.width/(window.devicePixelRatio||1);
-    const h = canvas.height/(window.devicePixelRatio||1);
-    for(let i=0;i<numStars;i++){
-      const s={x:0,y:0,z:0};
-      resetStar(s,w,h);
-      stars.push(s);
+  ctx.fillStyle = "white";
+  for (let s of stars) {
+    s.z -= speed;
+    if (s.z <= 0) {
+      s.x = (Math.random()-0.5)*canvas.width;
+      s.y = (Math.random()-0.5)*canvas.height;
+      s.z = canvas.width;
     }
-  }
-  initStars();
-
-  function spawnAlien(){
-    aliens.push({
-      x: Math.random()*canvas.width,
-      y: Math.random()*canvas.height,
-      size: 30,
-      message: "Hi!"
-    });
-  }
-
-  function spawnBody(){
-    bodies.push({
-      x: Math.random()*canvas.width,
-      y: Math.random()*canvas.height,
-      radius: 40+Math.random()*60,
-      color: `hsla(${Math.random()*360},70%,50%,0.5)`
-    });
-  }
-
-  function draw(){
-    speed += (targetSpeed-speed)*0.1;
-    ctx.fillStyle="#000";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    const w = canvas.width/(window.devicePixelRatio||1);
-    const h = canvas.height/(window.devicePixelRatio||1);
-
-    // stars
-    ctx.fillStyle="#fff";
-    for(let star of stars){
-      star.z -= speed;
-      if(star.z<=1) resetStar(star,w,h);
-      const k = 140/star.z;
-      const sx = star.x*k+centerX;
-      const sy = star.y*k+centerY;
-      if(sx>=0 && sx<w && sy>=0 && sy<h){
-        const size = Math.max(0.8,(1-star.z/Math.max(w,h))*2);
-        ctx.fillRect(sx,sy,size,size);
-      }
+    let k = 128 / s.z;
+    let sx = s.x*k + canvas.width/2;
+    let sy = s.y*k + canvas.height/2;
+    if (sx>=0 && sx<canvas.width && sy>=0 && sy<canvas.height) {
+      ctx.fillRect(sx, sy, 2, 2);
     }
-
-    // aliens appear only at slower speeds
-    if(speed < 5 && Math.random()<0.01) spawnAlien();
-    ctx.fillStyle="lime";
-    ctx.font="16px sans-serif";
-    for(let alien of aliens){
-      ctx.beginPath();
-      ctx.arc(alien.x,alien.y,alien.size/2,0,Math.PI*2);
-      ctx.fill();
-      ctx.fillText(alien.message,alien.x+alien.size,alien.y);
-    }
-    if(speed>10) aliens=[]; // fade out when speeding up
-
-    // celestial bodies
-    if(Math.random()<0.005) spawnBody();
-    for(let body of bodies){
-      ctx.fillStyle=body.color;
-      ctx.beginPath();
-      ctx.arc(body.x,body.y,body.radius,0,Math.PI*2);
-      ctx.fill();
-    }
-
-    requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
-
-  function fireShot(chargeTimeMs){
-    const burst = Math.min(chargeTimeMs/80,60);
-    targetSpeed = burst;
-    setTimeout(()=>{targetSpeed=0;},1200);
-  }
-
-  // --- POINTER EVENTS (touch + mouse unified) ---
-  let lastX=null;
-
-  function onPointerDown(e){
-    charging=true;
-    chargeStart=performance.now();
-    lastX=e.clientX;
-    canvas.setPointerCapture(e.pointerId);
-  }
-  function onPointerUp(e){
-    if(charging){
-      charging=false;
-      const chargeTime=performance.now()-chargeStart;
-      fireShot(chargeTime);
-    }
-    lastX=null;
-    try{canvas.releasePointerCapture(e.pointerId);}catch{}
-  }
-  function onPointerMove(e){
-    if(lastX==null) return;
-    const dx=e.clientX-lastX;
-    if(Math.abs(dx)>2){
-      if(dx>0){
-        targetSpeed=Math.min(targetSpeed+1.5,80); // swipe right = faster
-      }else{
-        targetSpeed=Math.max(targetSpeed-1.5,0);  // swipe left = slower
-      }
-      lastX=e.clientX;
-    }
-  }
-
-  canvas.addEventListener("pointerdown",onPointerDown,{passive:false});
-  canvas.addEventListener("pointerup",onPointerUp,{passive:false});
-  canvas.addEventListener("pointercancel",onPointerUp,{passive:false});
-  canvas.addEventListener("pointermove",onPointerMove,{passive:false});
-
-  ["touchstart","touchmove","touchend","touchcancel"].forEach(type=>{
-    document.addEventListener(type,(e)=>{
-      if(e.target===canvas) e.preventDefault();
-    },{passive:false});
-  });
-
-  // Keyboard fallback
-  window.addEventListener("keydown",(e)=>{
-    if(e.key==="ArrowRight") targetSpeed=Math.min(targetSpeed+5,80);
-    if(e.key==="ArrowLeft") targetSpeed=Math.max(targetSpeed-5,0);
-  });
-})();
+}
+draw();
 </script>
 </body>
 </html>
