@@ -2,157 +2,133 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Hyperspace Starfield (Horizontal Speed Control)</title>
+  <title>Swipe Speed Test</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #000;
-      height: 100%;
-      overflow: hidden;
-      touch-action: none; /* disable browser gestures */
+    html, body { margin:0; height:100%; background:#111; overflow:hidden; }
+    #hud {
+      position: fixed; top: 10px; left: 10px; right: 10px;
+      color: #0ff; font: 16px/1.4 system-ui, sans-serif;
+      text-shadow: 0 0 8px #0ff;
     }
     canvas {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-      touch-action: none;
+      display:block; width:100vw; height:100vh;
+      touch-action: none; /* capture gestures on canvas */
     }
+    .label { color:#aaa; }
   </style>
 </head>
 <body>
-<canvas id="starfield"></canvas>
-<script>
-(function() {
-  const canvas = document.getElementById("starfield");
-  const ctx = canvas.getContext("2d");
+<div id="hud">
+  <div><span class="label">Instruction:</span> Swipe RIGHT to increase speed, LEFT to decrease.</div>
+  <div><span class="label">Speed:</span> <span id="speedVal">0</span></div>
+</div>
+<canvas id="c"></canvas>
 
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const speedEl = document.getElementById('speedVal');
+
+  // HiDPI setup
   function resize() {
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const w = Math.floor(window.innerWidth);
     const h = Math.floor(window.innerHeight);
     canvas.width = w * dpr;
     canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    centerX = w / 2;
-    centerY = h / 2;
   }
-  window.addEventListener("resize", resize);
+  window.addEventListener('resize', resize);
   resize();
 
-  let stars = [];
-  const numStars = 450;
-  let speed = 0;
-  let targetSpeed = 0;
-  let charging = false;
-  let chargeStart = 0;
-  let aimY = 0;
-  let centerX = canvas.width / 2;
-  let centerY = canvas.height / 2;
+  // State
+  let speed = 0;          // current speed
+  let targetSpeed = 0;    // controlled by swipe
+  let lastX = null;       // for delta detection
+  let dots = [];
+  const DOTS = 60;
 
-  function resetStar(star, w, h) {
-    star.x = (Math.random() - 0.5) * w;
-    star.y = (Math.random() - 0.5) * h;
-    star.z = Math.random() * Math.max(w, h);
-  }
-  function initStars() {
-    stars.length = 0;
+  // Create rows of dots to visualize speed
+  function initDots() {
+    dots = [];
     const w = canvas.width / (window.devicePixelRatio || 1);
     const h = canvas.height / (window.devicePixelRatio || 1);
-    for (let i = 0; i < numStars; i++) {
-      const s = { x: 0, y: 0, z: 0 };
-      resetStar(s, w, h);
-      stars.push(s);
+    for (let i = 0; i < DOTS; i++) {
+      dots.push({
+        x: Math.random() * w,
+        y: (i / DOTS) * h,
+        size: 3 + Math.random() * 2
+      });
     }
   }
-  initStars();
+  initDots();
 
-  function draw() {
-    speed += (targetSpeed - speed) * 0.1;
-
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Draw loop
+  function loop() {
+    // smooth speed changes
+    speed += (targetSpeed - speed) * 0.12;
 
     const w = canvas.width / (window.devicePixelRatio || 1);
     const h = canvas.height / (window.devicePixelRatio || 1);
 
-    ctx.fillStyle = "#fff";
-    for (let star of stars) {
-      star.z -= speed;
-      if (star.z <= 1) resetStar(star, w, h);
+    // background
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, w, h);
 
-      const k = 140 / star.z;
-      const sx = star.x * k + centerX;
-      const sy = star.y * k + centerY + aimY;
-
-      if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
-        const size = Math.max(0.8, (1 - star.z / Math.max(w, h)) * 2);
-        ctx.fillRect(sx, sy, size, size);
-      }
+    // move and draw dots (move faster with speed)
+    for (const d of dots) {
+      d.x += speed;
+      if (d.x > w + 10) d.x = -10;
+      if (d.x < -10) d.x = w + 10;
+      ctx.fillStyle = '#0ff';
+      ctx.fillRect(d.x, d.y, d.size, d.size);
     }
-    requestAnimationFrame(draw);
+
+    // HUD update
+    speedEl.textContent = targetSpeed.toFixed(1);
+
+    requestAnimationFrame(loop);
   }
-  requestAnimationFrame(draw);
+  requestAnimationFrame(loop);
 
-  function fireShot(chargeTimeMs) {
-    const burst = Math.min(chargeTimeMs / 80, 60);
-    targetSpeed = burst;
-    setTimeout(() => { targetSpeed = 0; }, 1200);
-  }
-
-  // POINTER EVENTS (touch + mouse unified)
-  let lastX = null;
-
+  // Pointer events (work for touch + mouse)
   function onPointerDown(e) {
-    charging = true;
-    chargeStart = performance.now();
     lastX = e.clientX;
     canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
   }
-
-  function onPointerUp(e) {
-    if (charging) {
-      charging = false;
-      const chargeTime = performance.now() - chargeStart;
-      fireShot(chargeTime);
-    }
-    lastX = null;
-    try { canvas.releasePointerCapture(e.pointerId); } catch {}
-  }
-
   function onPointerMove(e) {
     if (lastX == null) return;
-    const deltaX = e.clientX - lastX;
-
-    // horizontal drag adjusts speed
-    if (Math.abs(deltaX) > 2) {
-      if (deltaX > 0) {
-        targetSpeed = Math.min(targetSpeed + 1.0, 80); // swipe right = faster
-      } else {
-        targetSpeed = Math.max(targetSpeed - 1.0, 0);  // swipe left = slower
-      }
+    const dx = e.clientX - lastX;
+    // Right increases, left decreases
+    if (Math.abs(dx) > 1) {
+      targetSpeed = clamp(targetSpeed + (dx > 0 ? 1.5 : -1.5), -30, 30);
       lastX = e.clientX;
     }
+    e.preventDefault();
+  }
+  function onPointerUp(e) {
+    lastX = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
   }
 
-  canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
-  canvas.addEventListener("pointerup", onPointerUp, { passive: false });
-  canvas.addEventListener("pointercancel", onPointerUp, { passive: false });
-  canvas.addEventListener("pointermove", onPointerMove, { passive: false });
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  ["touchstart","touchmove","touchend","touchcancel"].forEach(type => {
+  canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+  canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+  canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+  canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+
+  // Extra guard to prevent scrolling if canvas is touched
+  ['touchstart','touchmove','touchend','touchcancel'].forEach(type => {
     document.addEventListener(type, (e) => {
       if (e.target === canvas) e.preventDefault();
     }, { passive: false });
-  });
-
-  // Keyboard fallback
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowRight") targetSpeed = Math.min(targetSpeed + 5, 80);
-    if (e.key === "ArrowLeft") targetSpeed = Math.max(targetSpeed - 5, 0);
   });
 })();
 </script>
