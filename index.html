@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>Hyperspace Wormhole — Aliens + Tokyo + Touch</title>
   <style>
-    html, body { margin:0; height:100%; overflow:hidden; background:#000; }
+    html, body { margin:0; height:100%; overflow:hidden; background:#000; touch-action:none; }
     .stage { position:fixed; inset:0; }
     canvas { position:absolute; inset:0; display:block; }
     #c { z-index: 1; }
@@ -90,21 +90,24 @@
     if(e.touches.length > 0){
       touchStartY = e.touches[0].clientY;
     }
-  });
+  }, { passive:false });
+
   document.addEventListener('touchmove', e => {
     if(touchStartY !== null && e.touches.length > 0){
+      e.preventDefault(); // stop page scrolling
       const currentY = e.touches[0].clientY;
       const deltaY = touchStartY - currentY;
-      const sensitivity = 0.05; // adjust for faster/slower response
+      const sensitivity = 0.05;
       speed += deltaY * sensitivity;
       if(speed < 0) speed = 0;
       if(speed > 80) speed = 80;
-      touchStartY = currentY; // reset baseline for smooth control
+      touchStartY = currentY;
     }
-  });
+  }, { passive:false });
+
   document.addEventListener('touchend', () => {
     touchStartY = null;
-  });
+  }, { passive:false });
   </script>
 
   <!-- Overlay aliens -->
